@@ -925,6 +925,17 @@ export class OrgChart {
         const links = treeData.descendants().slice(1);
         nodes.forEach(attrs.layoutBindings[attrs.layout].swap)
 
+        // The layout puts the root at 0,0 every pass. A shift carried between passes lets the card whose
+        // chevron was clicked keep its spot instead, so the tree reflows around it.
+        const shift = (this._shift ??= { x: 0, y: 0 });
+        const anchor = this._anchor;
+        this._anchor = null;
+        if (anchor) {
+            shift.x = anchor.x - anchor.node.x;
+            shift.y = anchor.y - anchor.node.y;
+        }
+        nodes.forEach(d => { d.x += shift.x; d.y += shift.y; });
+
         // Connections
         const connections = attrs.connections;
         const allNodesMap = {};
@@ -1393,6 +1404,8 @@ export class OrgChart {
             d.data._centered = true;
             d.data._centeredWithDescendants = true;
         }
+        // Pin the card to where it is now; update() reflows the tree around it.
+        if (!attrs.setActiveNodeCentered) this._anchor = { node: d, x: d.x, y: d.y };
 
         // If childrens are expanded
         if (d.children) {
