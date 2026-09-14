@@ -167,6 +167,7 @@ export class OrgChart {
             },
             nodeEnter: (d) => d, // Custom handling of node update
             nodeExit: (d) => d, // Custom handling of exit node
+            nodeOrigin: (d) => null, // Id of the card a node grows out of and folds back into when data() swaps it in or out
             /* You can access and modify actual link DOM element in runtime using this method. */
             linkUpdate: function (d, i, arr) {
                 d3.select(this)
@@ -863,6 +864,13 @@ export class OrgChart {
         const visibleNodesMap = {}
         nodes.forEach(d => visibleNodesMap[attrs.nodeId(d.data)] = d);
 
+        // Cards on screen before this update, read before the joins below rebind them. A node whose
+        // nodeOrigin was drawn enters from that card; one whose nodeOrigin is laid out now exits into it.
+        const drawnMap = {};
+        attrs.nodesWrapper.selectAll("g.node").each(d => drawnMap[attrs.nodeId(d.data)] = d);
+        const origin = d => drawnMap[attrs.nodeOrigin(d.data)];
+        const target = d => visibleNodesMap[attrs.nodeOrigin(d.data)];
+
         connections.forEach(connection => {
             const source = allNodesMap[connection.from];
             const target = allNodesMap[connection.to];
@@ -888,8 +896,9 @@ export class OrgChart {
             .insert("path", "g")
             .attr("class", "link")
             .attr("d", (d) => {
-                const xo = attrs.layoutBindings[attrs.layout].linkJoinX({ x: x0, y: y0, width, height });
-                const yo = attrs.layoutBindings[attrs.layout].linkJoinY({ x: x0, y: y0, width, height });
+                const from = origin(d) || { x: x0, y: y0, width, height };
+                const xo = attrs.layoutBindings[attrs.layout].linkJoinX(from);
+                const yo = attrs.layoutBindings[attrs.layout].linkJoinY(from);
                 const o = { x: xo, y: yo };
                 return attrs.layoutBindings[attrs.layout].diagonal(o, o, o);
             });
@@ -952,8 +961,9 @@ export class OrgChart {
             .transition()
             .duration(attrs.duration)
             .attr("d", (d) => {
-                const xo = attrs.layoutBindings[attrs.layout].linkJoinX({ x, y, width, height });
-                const yo = attrs.layoutBindings[attrs.layout].linkJoinY({ x, y, width, height });
+                const to = target(d) || { x, y, width, height };
+                const xo = attrs.layoutBindings[attrs.layout].linkJoinX(to);
+                const yo = attrs.layoutBindings[attrs.layout].linkJoinY(to);
                 const o = { x: xo, y: yo };
                 return attrs.layoutBindings[attrs.layout].diagonal(o, o, null, { sy: attrs.linkYOffset });
             })
@@ -1020,6 +1030,8 @@ export class OrgChart {
             .append("g")
             .attr("class", "node")
             .attr("transform", (d) => {
+                const o = origin(d);
+                if (o) return attrs.layoutBindings[attrs.layout].nodeUpdateTransform({ x: o.x, y: o.y, width: d.width, height: d.height });
                 if (d == attrs.root) return `translate(${x0},${y0})`
                 const xj = attrs.layoutBindings[attrs.layout].nodeJoinX({ x: x0, y: y0, width, height });
                 const yj = attrs.layoutBindings[attrs.layout].nodeJoinY({ x: x0, y: y0, width, height });
@@ -1215,7 +1227,8 @@ export class OrgChart {
             .transition()
             .duration(attrs.duration)
             .attr("transform", (d) => {
-
+                const t = target(d);
+                if (t) return attrs.layoutBindings[attrs.layout].nodeUpdateTransform({ x: t.x, y: t.y, width: d.width, height: d.height });
                 let { x, y, width, height } = maxDepthNode.parent || {};
                 const ex = attrs.layoutBindings[attrs.layout].nodeJoinX({ x, y, width, height });
                 const ey = attrs.layoutBindings[attrs.layout].nodeJoinY({ x, y, width, height });
