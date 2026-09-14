@@ -450,6 +450,62 @@ export class OrgChart {
                     "swap": d => { const x = d.x; d.x = -d.y; d.y = x; },
                     "nodeUpdateTransform": ({ x, y, width, height }) => `translate(${x - width},${y - height / 2})`,
                 },
+                // The top layout bent into a circle: flextree's x becomes the angle and its y the
+                // radius, cards stay upright and centred on their point, links run centre to centre.
+                // ponytail: angle is shared out by leaf count, so inner rings crowd when a branch has
+                // few leaves near the root; a minimum radius per depth ring is the upgrade.
+                "radial": {
+                    "nodeLeftX": node => -node.width / 2,
+                    "nodeRightX": node => node.width / 2,
+                    "nodeTopY": node => -node.height / 2,
+                    "nodeBottomY": node => node.height / 2,
+                    "nodeJoinX": node => node.x - node.width / 2,
+                    "nodeJoinY": node => node.y - node.height / 2,
+                    "linkJoinX": node => node.x,
+                    "linkJoinY": node => node.y,
+                    "linkCompactXStart": node => node.x,
+                    "linkCompactYStart": node => node.y,
+                    "compactLinkMidX": node => node.firstCompactNode.x,
+                    "compactLinkMidY": node => node.firstCompactNode.y,
+                    "compactDimension": {
+                        sizeColumn: node => node.width,
+                        sizeRow: node => node.height,
+                        reverse: arr => arr,
+                    },
+                    "linkX": node => node.x,
+                    "linkY": node => node.y,
+                    "linkParentX": node => node.parent.x,
+                    "linkParentY": node => node.parent.y,
+                    "buttonX": node => node.width / 2,
+                    "buttonY": node => node.height,
+                    "centerTransform": ({ centerX, centerY, scale }) => `translate(${centerX},${centerY}) scale(${scale})`,
+                    "nodeFlexSize": ({ height, width, siblingsMargin, childrenMargin, state, node }) => {
+                        if (state.compact && node.flexCompactDim) {
+                            return [node.flexCompactDim[0], node.flexCompactDim[1]];
+                        };
+                        return [width + siblingsMargin, height + childrenMargin];
+                    },
+                    "zoomTransform": ({ centerX, centerY, scale }) => `translate(${centerX},${centerY}) scale(${scale})`,
+                    "diagonal": (s, t) => `M${s.x},${s.y}L${t.x},${t.y}`,
+                    // Called per node by forEach; the first call measures the whole laid-out tree
+                    // before any node has been moved.
+                    "swap": (d, i, nodes) => {
+                        if (!i) {
+                            const minX = d3.min(nodes, n => n.x);
+                            // One card's width of slack, so the first and last leaves don't meet at the seam.
+                            const span = d3.max(nodes, n => n.x) - minX + d3.max(nodes, n => n.width);
+                            const maxY = d3.max(nodes, n => n.y);
+                            // The outer ring keeps flextree's sibling spacing as arc length.
+                            this._radial = { minX, span, maxY, radius: Math.max(maxY, span / (2 * Math.PI)) };
+                        }
+                        const { minX, span, maxY, radius } = this._radial;
+                        const angle = (d.x - minX) / span * 2 * Math.PI;
+                        const r = maxY ? d.y / maxY * radius : 0;
+                        d.x = r * Math.sin(angle);
+                        d.y = -r * Math.cos(angle);
+                    },
+                    "nodeUpdateTransform": ({ x, y, width, height }) => `translate(${x - width / 2},${y - height / 2})`,
+                },
             }
 
         };
