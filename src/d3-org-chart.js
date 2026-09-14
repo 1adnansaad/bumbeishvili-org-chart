@@ -450,10 +450,10 @@ export class OrgChart {
                     "swap": d => { const x = d.x; d.x = -d.y; d.y = x; },
                     "nodeUpdateTransform": ({ x, y, width, height }) => `translate(${x - width},${y - height / 2})`,
                 },
-                // The top layout bent into a circle: flextree's x becomes the angle and its y the
-                // radius, cards stay upright and centred on their point, links run centre to centre.
-                // ponytail: angle is shared out by leaf count, so inner rings crowd when a branch has
-                // few leaves near the root; a minimum radius per depth ring is the upgrade.
+                // d3-hierarchy's radial tidy tree: the angle comes from d3.tree(), the radius from the
+                // depth, cards stay upright and centred on their point, links run centre to centre.
+                // ponytail: one ring gap for the whole tree, so a crowded deep ring pushes every ring
+                // out; per-depth radii are the upgrade.
                 "radial": {
                     "nodeLeftX": node => -node.width / 2,
                     "nodeRightX": node => node.width / 2,
@@ -487,20 +487,33 @@ export class OrgChart {
                     },
                     "zoomTransform": ({ centerX, centerY, scale }) => `translate(${centerX},${centerY}) scale(${scale})`,
                     "diagonal": (s, t) => `M${s.x},${s.y}L${t.x},${t.y}`,
-                    // Called per node by forEach; the first call measures the whole laid-out tree
-                    // before any node has been moved.
+                    // Called per node by forEach; the first call (the root) lays out the whole tree.
                     "swap": (d, i, nodes) => {
                         if (!i) {
-                            const minX = d3.min(nodes, n => n.x);
-                            // One card's width of slack, so the first and last leaves don't meet at the seam.
-                            const span = d3.max(nodes, n => n.x) - minX + d3.max(nodes, n => n.width);
-                            const maxY = d3.max(nodes, n => n.y);
-                            // The outer ring keeps flextree's sibling spacing as arc length.
-                            this._radial = { minX, span, maxY, radius: Math.max(maxY, span / (2 * Math.PI)) };
+                            // Every node's x becomes its angle. Dividing by depth gives inner rings more
+                            // angle, so neighbours sit a similar distance apart on every ring.
+                            d3.tree()
+                                .size([2 * Math.PI, 1])
+                                .separation((a, b) => (a.parent === b.parent ? 1 : 2) / a.depth)(nodes[0]);
+                            // Cards are upright boxes, not points: two whose centres are a diagonal apart
+                            // can't overlap. That bounds the gap between rings, and on each ring the
+                            // closest pair of neighbours (chord 2r·sin(Δ/2)) sets how far out it must be.
+                            const slot = Math.hypot(d3.max(nodes, n => n.width), d3.max(nodes, n => n.height)) + 24;
+                            let ring = slot;
+                            const byDepth = {};
+                            nodes.forEach(n => (byDepth[n.depth] ??= []).push(n.x));
+                            Object.entries(byDepth).forEach(([depth, angles]) => {
+                                if (angles.length < 2) return;
+                                angles.sort((a, b) => a - b);
+                                angles.forEach((angle, k) => {
+                                    const gap = k ? angle - angles[k - 1] : angle + 2 * Math.PI - angles[angles.length - 1];
+                                    ring = Math.max(ring, slot / (2 * Math.sin(gap / 2)) / depth);
+                                });
+                            });
+                            this._radial = { ring };
                         }
-                        const { minX, span, maxY, radius } = this._radial;
-                        const angle = (d.x - minX) / span * 2 * Math.PI;
-                        const r = maxY ? d.y / maxY * radius : 0;
+                        const angle = d.x;
+                        const r = d.depth * this._radial.ring;
                         d.x = r * Math.sin(angle);
                         d.y = -r * Math.cos(angle);
                     },
